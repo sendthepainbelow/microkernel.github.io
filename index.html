@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lightweight Kernel Blueprint</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+            color: #334155;
+        }
+        .fira-code {
+            font-family: 'Fira Code', monospace;
+        }
+        .content-section {
+            display: none;
+        }
+        .content-section.active {
+            display: block;
+        }
+        .nav-link {
+            transition: all 0.2s ease-in-out;
+            border-bottom: 2px solid transparent;
+        }
+        .nav-link.active {
+            border-bottom-color: #0ea5e9;
+            color: #0c4a6e;
+        }
+        .code-block {
+            background-color: #0f172a;
+            color: #e2e8f0;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            overflow-x: auto;
+        }
+        .code-block pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .code-tab.active {
+            background-color: #0ea5e9;
+            color: white;
+        }
+        .keyword { color: #f472b6; }
+        .type { color: #60a5fa; }
+        .comment { color: #94a3b8; }
+        .string { color: #a5b4fc; }
+        .number { color: #fbbf24; }
+        .function { color: #818cf8; }
+        .info-box {
+            background-color: #f0f9ff;
+            border-left: 4px solid #0ea5e9;
+            padding: 1rem;
+            border-radius: 0.25rem;
+        }
+        .bitfield-diagram {
+            display: flex;
+            flex-wrap: wrap;
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            text-align: center;
+        }
+        .bitfield {
+            border-left: 1px solid #cbd5e1;
+            padding: 4px 2px;
+            position: relative;
+            cursor: pointer;
+        }
+        .bitfield:first-child { border-left: none; }
+        .bitfield .bit-label {
+            position: absolute;
+            top: -1.2em;
+            left: 0;
+            width: 100%;
+            color: #64748b;
+        }
+        .bitfield .bit-desc {
+            display: none;
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #1e293b;
+            color: white;
+            padding: 8px;
+            border-radius: 4px;
+            z-index: 10;
+            width: 200px;
+            margin-bottom: 5px;
+            text-align: left;
+            font-size: 0.875rem;
+        }
+        .bitfield:hover .bit-desc {
+            display: block;
+        }
+    </style>
+</head>
+<body class="antialiased">
+    <div class="min-h-screen">
+        <header class="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-20">
+            <div class="container mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex items-center justify-between h-16">
+                    <h1 class="text-2xl font-bold text-slate-800">Lightweight Kernel Blueprint</h1>
+                    <nav class="hidden md:flex space-x-6 text-sm font-medium">
+                        <a href="#intro" class="nav-link active">Intro</a>
+                        <a href="#bootstrapping" class="nav-link">Bootstrapping</a>
+                        <a href="#core" class="nav-link">Core Setup</a>
+                        <a href="#services" class="nav-link">Services</a>
+                        <a href="#filesystem" class="nav-link">Filesystem</a>
+                    </nav>
+                </div>
+            </div>
+        </header>
+
+        <main class="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+            <!-- Introduction Section -->
+            <section id="intro" class="content-section active space-y-6">
+                <h2 class="text-3xl font-bold text-slate-900 border-b pb-2">Welcome to the Blueprint</h2>
+                <p class="text-lg text-slate-600">This interactive guide provides a high-level blueprint for creating a minimal, 32-bit protected-mode kernel for the x86 architecture. The goal is not to provide a complete, copy-paste OS, but to demystify the core components and demonstrate best practices. We will explore the journey from the moment the bootloader hands off control to having a basic C environment with screen output, memory management, and interrupt handling.</p>
+                <div class="info-box">
+                    <h4 class="font-semibold text-sky-800">Core Philosophy</h4>
+                    <p class="text-sky-700">The design emphasizes simplicity and education. We use standard, well-documented tools like GRUB and focus on writing clean, modular C code. Complexities are broken down into manageable stages, showing how each component builds upon the last to form a functional kernel base.</p>
+                </div>
+
+                <h3 class="text-2xl font-bold text-slate-800 pt-4">The Overall Process Flow</h3>
+                <p>Developing a kernel involves several distinct phases. This diagram illustrates the high-level sequence from power-on to our kernel's main function.</p>
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                     <div class="flex flex-col md:flex-row items-center justify-between space-y-4 md:space-y-0 md:space-x-4 text-center">
+                        <div class="p-4 bg-slate-100 rounded-lg w-full md:w-auto">
+                            <span class="text-sm font-semibold text-slate-500">Hardware</span>
+                            <p class="font-bold text-slate-800">BIOS/UEFI</p>
+                        </div>
+                        <div class="text-2xl font-mono text-sky-500">&rarr;</div>
+                        <div class="p-4 bg-slate-100 rounded-lg w-full md:w-auto">
+                            <span class="text-sm font-semibold text-slate-500">Stage 1</span>
+                            <p class="font-bold text-slate-800">Bootloader (GRUB)</p>
+                        </div>
+                        <div class="text-2xl font-mono text-sky-500">&rarr;</div>
+                        <div class="p-4 bg-sky-100 rounded-lg border border-sky-300 w-full md:w-auto">
+                             <span class="text-sm font-semibold text-sky-500">Our Code</span>
+                            <p class="font-bold text-sky-800">Assembly Stub</p>
+                        </div>
+                        <div class="text-2xl font-mono text-sky-500">&rarr;</div>
+                        <div class="p-4 bg-sky-100 rounded-lg border border-sky-300 w-full md:w-auto">
+                            <span class="text-sm font-semibold text-sky-500">Our Code</span>
+                            <p class="font-bold text-sky-800">C Kernel Main</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Bootstrapping Section -->
+            <section id="bootstrapping" class="content-section space-y-6">
+                <h2 class="text-3xl font-bold text-slate-900 border-b pb-2">Phase 1: Bootstrapping</h2>
+                <p class="text-lg text-slate-600">Bootstrapping is the process of getting the computer from a powered-off state to a point where our custom kernel code is executing. We wisely offload the most complex parts of this—like switching to 32-bit protected mode—to a standard bootloader, GRUB.</p>
+                
+                <div class="grid md:grid-cols-2 gap-8">
+                    <div class="space-y-4">
+                        <h3 class="text-2xl font-bold text-slate-800">1. The Bootloader (GRUB)</h3>
+                        <p>GRUB (GRand Unified Bootloader) is a powerful tool that locates our kernel on disk, loads it into memory, and jumps to it. We just need to provide a simple configuration file that tells GRUB where to find our kernel binary. This approach saves us from writing complex, low-level disk I/O and mode-switching code.</p>
+                        <div class="info-box">
+                            <h4 class="font-semibold text-sky-800">The Multiboot Standard</h4>
+                            <p class="text-sky-700">GRUB adheres to the Multiboot Specification, a standard interface between a bootloader and an OS. By making our kernel "Multiboot-compliant," we ensure GRUB can load it and provide it with useful information about the machine's memory layout.</p>
+                        </div>
+                    </div>
+                    <div>
+                         <div class="code-block fira-code text-sm">
+                            <p class="text-slate-400 mb-2">// grub.cfg</p>
+                            <pre><span class="keyword">menuentry</span> <span class="string">"MyOS"</span> {
+    <span class="keyword">multiboot</span> <span class="string">/boot/myos.bin</span>
+}</pre>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="pt-6 space-y-4">
+                    <h3 class="text-2xl font-bold text-slate-800">2. The Entry Point & Linker Script</h3>
+                    <p>Before our C code can run, a tiny piece of assembly is needed to set up a valid environment. This includes creating a stack. The linker script then ensures our assembly code, C code, and data are organized correctly in the final executable file that GRUB loads.</p>
+                </div>
+
+                <div class="bg-white rounded-lg shadow-md">
+                    <div class="flex border-b border-slate-200">
+                        <button class="code-tab p-3 font-medium text-sm active" data-target="boot-asm">boot.s (Assembly)</button>
+                        <button class="code-tab p-3 font-medium text-sm" data-target="linker-ld">linker.ld (Linker Script)</button>
+                    </div>
+                    <div id="boot-asm" class="code-content">
+                        <div class="code-block fira-code text-sm">
+                            <pre><span class="comment">; Tell GRUB we are Multiboot-compliant</span>
+<span class="keyword">MBOOT_PAGE_ALIGN</span>  <span class="keyword">equ</span> 1&lt;&lt;0
+<span class="keyword">MBOOT_MEM_INFO</span>    <span class="keyword">equ</span> 1&lt;&lt;1
+<span class="keyword">MBOOT_HEADER_MAGIC</span> <span class="keyword">equ</span> 0x1BADB002
+<span class="keyword">MBOOT_HEADER_FLAGS</span> <span class="keyword">equ</span> MBOOT_PAGE_ALIGN | MBOOT_MEM_INFO
+<span class="keyword">MBOOT_CHECKSUM</span>     <span class="keyword">equ</span> -(MBOOT_HEADER_MAGIC + MBOOT_HEADER_FLAGS)
+
+<span class="keyword">section</span> .multiboot
+<span class="keyword">align</span> 4
+    <span class="keyword">dd</span> MBOOT_HEADER_MAGIC
+    <span class="keyword">dd</span> MBOOT_HEADER_FLAGS
+    <span class="keyword">dd</span> MBOOT_CHECKSUM
+
+<span class="comment">; Reserve space for the stack</span>
+<span class="keyword">section</span> .bss
+<span class="keyword">align</span> 16
+<span class="keyword">stack_bottom:</span>
+    <span class="keyword">resb</span> 16384
+<span class="keyword">stack_top:</span>
+
+<span class="keyword">section</span> .text
+<span class="keyword">global</span> _start
+<span class="keyword">extern</span> kernel_main
+
+<span class="function">_start:</span>
+    <span class="comment">; Set up the stack pointer</span>
+    <span class="keyword">mov</span> <span class="type">esp</span>, stack_top
+
+    <span class="comment">; Call our C kernel</span>
+    <span class="keyword">call</span> kernel_main
+
+    <span class="comment">; If the kernel returns, hang</span>
+    <span class="keyword">cli</span>
+<span class="function">hang:</span>
+    <span class="keyword">hlt</span>
+    <span class="keyword">jmp</span> hang</pre>
+                        </div>
+                    </div>
+                    <div id="linker-ld" class="code-content" style="display:none;">
+                         <div class="code-block fira-code text-sm">
+                           <pre><span class="keyword">ENTRY</span>(_start)
+
+<span class="keyword">SECTIONS</span>
+{
+    <span class="comment">/* Begin sections at 1 MiB */</span>
+    . = 1M;
+
+    .text :
+    {
+        *(.multiboot)
+        *(.text)
+    }
+
+    .rodata :
+    {
+        *(.rodata)
+    }
+
+    .data :
+    {
+        *(.data)
+    }
+    
+    .bss :
+    {
+        *(.bss)
+    }
+}</pre>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Core Setup Section -->
+            <section id="core" class="content-section space-y-6">
+                <h2 class="text-3xl font-bold text-slate-900 border-b pb-2">Phase 2: Core Kernel Setup</h2>
+                <p class="text-lg text-slate-600">With our C code running, the first job is to configure critical CPU data structures. These tables define the memory layout and how the CPU should handle events like errors and hardware signals. Without them, the system is fragile and cannot run user programs or handle hardware.</p>
+
+                <h3 class="text-2xl font-bold text-slate-800">1. Global Descriptor Table (GDT)</h3>
+                <p>The GDT defines the system's memory segments. In 32-bit protected mode, even with a "flat" memory model (where segments span the whole address space), we still need a GDT. It's primarily used to define privilege levels for code and data, separating the kernel (Ring 0) from user applications (Ring 3).</p>
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                    <h4 class="font-semibold mb-2">GDT Segment Descriptor (64 bits)</h4>
+                    <div class="bitfield-diagram fira-code">
+                        <div class="bitfield" style="width: 25%; background-color: #e0f2fe;">
+                            <span class="bit-label">31-24</span>Base (31-24)
+                             <div class="bit-desc">Bits 24-31 of the 32-bit segment base address.</div>
+                        </div>
+                        <div class="bitfield" style="width: 6.25%; background-color: #bae6fd;">
+                            <span class="bit-label">23</span>G
+                            <div class="bit-desc">Granularity: If 1, the Limit is in 4KiB pages. If 0, it's in bytes.</div>
+                        </div>
+                        <div class="bitfield" style="width: 6.25%; background-color: #bae6fd;">
+                            <span class="bit-label">22</span>D/B
+                             <div class="bit-desc">Size: 0 for 16-bit segment, 1 for 32-bit segment.</div>
+                        </div>
+                        <div class="bitfield" style="width: 12.5%; background-color: #bae6fd;">
+                            <span class="bit-label">21-20</span>0, AVL
+                             <div class="bit-desc">Reserved / Available for system use.</div>
+                        </div>
+                        <div class="bitfield" style="width: 12.5%; background-color: #7dd3fc;">
+                            <span class="bit-label">19-16</span>Limit (19-16)
+                            <div class="bit-desc">Bits 16-19 of the 20-bit segment limit.</div>
+                        </div>
+                        <div class="bitfield" style="width: 37.5%; background-color: #38bdf8;">
+                            <span class="bit-label">15-0</span>Base (23-16) & Access Byte
+                             <div class="bit-desc">Access Byte (P, DPL, S, E, DC, RW, A) and bits 16-23 of Base.</div>
+                        </div>
+                         <div class="bitfield" style="width: 50%; background-color: #e0f2fe; border-top: 1px solid #cbd5e1;">
+                            <span class="bit-label"></span>Base (15-0)
+                            <div class="bit-desc">Bits 0-15 of the 32-bit segment base address.</div>
+                        </div>
+                        <div class="bitfield" style="width: 50%; background-color: #7dd3fc; border-top: 1px solid #cbd5e1;">
+                             <span class="bit-label"></span>Limit (15-0)
+                            <div class="bit-desc">Bits 0-15 of the 20-bit segment limit.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <h3 class="text-2xl font-bold text-slate-800 pt-4">2. Interrupt Descriptor Table (IDT)</h3>
+                <p>The IDT is a table of 256 entries that tells the CPU where to find the code to run when an interrupt occurs. Interrupts can be hardware signals (e.g., keyboard press), software-triggered (system calls), or CPU exceptions (e.g., division by zero). Setting up the IDT is critical for system stability and interaction.</p>
+
+                <div class="grid md:grid-cols-2 gap-8">
+                    <div class="bg-white p-4 rounded-lg shadow-md">
+                        <h4 class="font-semibold mb-2">First 32 CPU Exceptions (Reserved)</h4>
+                        <ul class="text-sm space-y-1 fira-code max-h-80 overflow-y-auto">
+                            <li><strong class="text-sky-700">0:</strong> #DE - Divide Error</li>
+                            <li><strong class="text-sky-700">1:</strong> #DB - Debug</li>
+                            <li><strong class="text-sky-700">2:</strong> NMI Interrupt</li>
+                            <li><strong class="text-sky-700">3:</strong> #BP - Breakpoint</li>
+                            <li><strong class="text-sky-700">4:</strong> #OF - Overflow</li>
+                            <li><strong class="text-sky-700">5:</strong> #BR - Bound Range Exceeded</li>
+                            <li><strong class="text-sky-700">6:</strong> #UD - Invalid Opcode</li>
+                            <li><strong class="text-sky-700">7:</strong> #NM - Device Not Available</li>
+                            <li><strong class="text-sky-700">8:</strong> #DF - Double Fault</li>
+                            <li><strong class="text-sky-700">10:</strong> #TS - Invalid TSS</li>
+                            <li><strong class="text-sky-700">11:</strong> #NP - Segment Not Present</li>
+                            <li><strong class="text-sky-700">12:</strong> #SS - Stack-Segment Fault</li>
+                            <li><strong class="text-sky-700">13:</strong> #GP - General Protection Fault</li>
+                            <li><strong class="text-sky-700">14:</strong> #PF - Page Fault</li>
+                            <li><strong class="text-sky-700">16:</strong> #MF - x87 Floating-Point</li>
+                            <li><strong class="text-sky-700">17:</strong> #AC - Alignment Check</li>
+                            <li><strong class="text-sky-700">18:</strong> #MC - Machine Check</li>
+                            <li><strong class="text-sky-700">19:</strong> #XF - SIMD Floating-Point</li>
+                        </ul>
+                    </div>
+                     <div class="space-y-4">
+                        <p>We must provide an Interrupt Service Routine (ISR) for each exception we wish to handle. An IDT entry, or "gate", contains a pointer to the ISR, a code segment selector from our GDT, and flags defining the gate type and privilege level.</p>
+                        <div class="code-block fira-code text-sm">
+                            <pre><span class="keyword">struct</span> idt_entry {
+    <span class="type">unsigned short</span> base_lo;
+    <span class="type">unsigned short</span> sel;
+    <span class="type">unsigned char</span> always0;
+    <span class="type">unsigned char</span> flags;
+    <span class="type">unsigned short</span> base_hi;
+} <span class="keyword">__attribute__</span>((packed));
+
+<span class="keyword">struct</span> idt_ptr {
+    <span class="type">unsigned short</span> limit;
+    <span class="type">unsigned int</span> base;
+} <span class="keyword">__attribute__</span>((packed));
+
+<span class="type">void</span> <span class="function">idt_set_gate</span>(<span class="type">unsigned char</span> num, <span class="type">unsigned long</span> base, <span class="type">unsigned short</span> sel, <span class="type">unsigned char</span> flags) {
+    idt[num].base_lo = (base & 0xFFFF);
+    idt[num].base_hi = (base &gt;&gt; 16) & 0xFFFF;
+
+    idt[num].sel = sel;
+    idt[num].always0 = 0;
+    idt[num].flags = flags;
+}</pre>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Services Section -->
+            <section id="services" class="content-section space-y-6">
+                <h2 class="text-3xl font-bold text-slate-900 border-b pb-2">Phase 3: Essential Services</h2>
+                <p class="text-lg text-slate-600">With the core CPU configured, we can start building basic kernel services. The first two are fundamental: a way to output text to the screen and a system for managing memory.</p>
+                
+                <h3 class="text-2xl font-bold text-slate-800">1. VGA Text Mode Driver</h3>
+                <p>Before we have complex graphics, the simplest way to see output is by writing directly to the VGA text-mode buffer. This is a special region of memory at address `0xB8000` that is directly mapped to the screen display. Each character on the 80x25 grid is represented by two bytes: one for the ASCII character, one for the color attributes.</p>
+                 <div class="code-block fira-code text-sm">
+                    <pre><span class="type">unsigned short</span> *video_memory = (<span class="type">unsigned short</span> *)0xB8000;
+<span class="type">unsigned char</span> cursor_x = 0;
+<span class="type">unsigned char</span> cursor_y = 0;
+
+<span class="type">void</span> <span class="function">putchar</span>(<span class="type">char</span> c) {
+    <span class="keyword">if</span> (c == 0x08 && cursor_x) {
+        cursor_x--;
+    }
+    <span class="keyword">else if</span> (c == '\n') {
+        cursor_x = 0;
+        cursor_y++;
+    }
+    <span class="keyword">else if</span>(c >= ' ') {
+        <span class="type">const unsigned int</span> index = cursor_y * 80 + cursor_x;
+        video_memory[index] = c | (0x0F &lt;&lt; 8);
+        cursor_x++;
+    }
+
+    <span class="keyword">if</span> (cursor_x >= 80) {
+        cursor_x = 0;
+        cursor_y++;
+    }
+    
+    <span class="comment">// TODO: Implement scrolling</span>
+}</pre>
+                </div>
+                
+                <h3 class="text-2xl font-bold text-slate-800 pt-6">2. Memory Management (Paging)</h3>
+                <p>Paging is the modern technique for memory management. It allows for <span class="font-semibold">virtual memory</span>, where each process gets its own isolated address space, which is then mapped to physical RAM by the kernel via page tables. This prevents processes from interfering with each other or the kernel. It also allows us to use more memory than is physically available by "swapping" pages to disk.</p>
+                
+                <div class="info-box">
+                    <h4 class="font-semibold text-sky-800">Address Translation</h4>
+                    <p class="text-sky-700">The CPU's Memory Management Unit (MMU) translates a virtual address to a physical address. A 32-bit virtual address is split into three parts: a 10-bit index into the Page Directory, a 10-bit index into a Page Table, and a 12-bit offset into the final 4KiB physical page.</p>
+                </div>
+                
+                 <div class="bg-white p-6 rounded-lg shadow-md mt-4">
+                    <h4 class="font-semibold mb-4 text-center">Virtual to Physical Address Translation Flow</h4>
+                     <div class="flex flex-col md:flex-row items-stretch justify-around space-y-4 md:space-y-0 text-center fira-code text-sm">
+                        <div class="flex flex-col items-center">
+                            <div class="p-3 bg-indigo-100 border border-indigo-300 rounded-lg">Virtual Address</div>
+                            <div class="flex mt-2 shadow-sm rounded-md">
+                               <div class="p-2 bg-pink-200 rounded-l-md" title="Page Directory Index">10 bits</div>
+                               <div class="p-2 bg-blue-200" title="Page Table Index">10 bits</div>
+                               <div class="p-2 bg-green-200 rounded-r-md" title="Offset">12 bits</div>
+                            </div>
+                        </div>
+                        <div class="flex items-center text-2xl font-mono text-slate-400">&rarr;</div>
+                        <div class="flex flex-col items-center">
+                             <div class="p-3 bg-slate-100 rounded-lg">Page Directory</div>
+                             <div class="mt-2 p-2 border border-dashed border-slate-400 rounded-md bg-pink-50">Entry [idx]</div>
+                        </div>
+                        <div class="flex items-center text-2xl font-mono text-slate-400">&rarr;</div>
+                        <div class="flex flex-col items-center">
+                             <div class="p-3 bg-slate-100 rounded-lg">Page Table</div>
+                             <div class="mt-2 p-2 border border-dashed border-slate-400 rounded-md bg-blue-50">Entry [idx]</div>
+                        </div>
+                         <div class="flex items-center text-2xl font-mono text-slate-400">&rarr;</div>
+                        <div class="flex flex-col items-center">
+                            <div class="p-3 bg-emerald-100 border border-emerald-300 rounded-lg">Physical Address</div>
+                            <div class="flex mt-2 shadow-sm rounded-md">
+                               <div class="p-2 bg-yellow-200 rounded-l-md" title="Page Frame Address">20 bits</div>
+                               <div class="p-2 bg-green-200 rounded-r-md" title="Offset">12 bits</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Filesystem Section -->
+            <section id="filesystem" class="content-section space-y-6">
+                <h2 class="text-3xl font-bold text-slate-900 border-b pb-2">Phase 4: Filesystem Blueprint</h2>
+                <p class="text-lg text-slate-600">A filesystem organizes data on a storage device. For a hobby OS, we don't need a complex, journaling filesystem. A simple, inode-based design, inspired by the original Linux filesystem (Minix FS), is a perfect educational model. This blueprint is conceptual; a real implementation requires a block device driver (e.g., for an IDE disk).</p>
+
+                <h3 class="text-2xl font-bold text-slate-800">Conceptual Layout of a Simple Filesystem</h3>
+                <div class="bg-white p-6 rounded-lg shadow-md fira-code text-sm">
+                    <div class="grid grid-cols-2 md:grid-cols-5 gap-1 text-center">
+                        <div class="p-3 bg-slate-200 rounded-l-lg" title="First block, contains bootloader code.">Boot Block</div>
+                        <div class="p-3 bg-sky-200" title="Metadata about the filesystem (sizes, counts, magic number).">Super Block</div>
+                        <div class="p-3 bg-indigo-200" title="A bitmap tracking which inodes are free or in use.">Inode Bitmap</div>
+                        <div class="p-3 bg-amber-200" title="A bitmap tracking which data blocks are free or in use.">Data Bitmap</div>
+                        <div class="p-3 bg-pink-200 md:rounded-r-lg" title="The table of all inodes.">Inode Table</div>
+                        <div class="col-span-2 md:col-span-5 mt-1 p-8 bg-green-200 rounded-b-lg" title="The bulk of the disk, where file contents are actually stored.">Data Blocks</div>
+                    </div>
+                </div>
+
+                <div class="grid md:grid-cols-2 gap-8 pt-6">
+                    <div class="space-y-4">
+                        <h3 class="text-2xl font-bold text-slate-800">Core Concepts: Inodes and Blocks</h3>
+                        <p>The fundamental idea is to separate a file's metadata from its contents.</p>
+                        <ul class="list-disc list-inside space-y-2">
+                            <li><strong class="text-slate-800">Inode:</strong> Short for "index node", an inode is a data structure that stores all metadata about a file: its type (file, directory), size, permissions, timestamps, and most importantly, pointers to the data blocks that hold its content.</li>
+                            <li><strong class="text-slate-800">Block:</strong> The storage device is divided into fixed-size blocks (e.g., 4KiB). A file's content is stored in one or more of these data blocks, which may not be contiguous.</li>
+                            <li><strong class="text-slate-800">Directory:</strong> A directory is just a special type of file. Its data block(s) contain a list of `(filename, inode_number)` pairs for the files and directories within it.</li>
+                        </ul>
+                    </div>
+                     <div>
+                        <div class="code-block fira-code text-sm">
+                            <pre><span class="keyword">#define</span> DIRECT_BLOCKS 12
+<span class="keyword">struct</span> inode {
+    <span class="type">unsigned short</span> mode;
+    <span class="type">unsigned short</span> uid;
+    <span class="type">unsigned int</span>   size;
+    <span class="type">unsigned int</span>   atime;
+    <span class="type">unsigned int</span>   mtime;
+    <span class="type">unsigned int</span>   blocks;
+    <span class="type">unsigned int</span>   direct[DIRECT_BLOCKS];
+    <span class="type">unsigned int</span>   indirect;
+};
+
+<span class="keyword">#define</span> FILENAME_MAX 28
+<span class="keyword">struct</span> directory_entry {
+    <span class="type">unsigned int</span>  inode_num;
+    <span class="type">char</span>          name[FILENAME_MAX];
+};</pre>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const navLinks = document.querySelectorAll('.nav-link');
+            const sections = document.querySelectorAll('.content-section');
+
+            function updateActiveNav(hash) {
+                navLinks.forEach(link => {
+                    if (link.getAttribute('href') === hash) {
+                        link.classList.add('active');
+                    } else {
+                        link.classList.remove('active');
+                    }
+                });
+            }
+
+            function showSection(hash) {
+                let sectionId = hash ? hash.substring(1) : 'intro';
+                let activeSectionFound = false;
+                sections.forEach(section => {
+                    if (section.id === sectionId) {
+                        section.classList.add('active');
+                        activeSectionFound = true;
+                    } else {
+                        section.classList.remove('active');
+                    }
+                });
+                if (!activeSectionFound) {
+                    document.getElementById('intro').classList.add('active');
+                }
+                updateActiveNav(hash || '#intro');
+            }
+
+            navLinks.forEach(link => {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const targetId = this.getAttribute('href');
+                    showSection(targetId);
+                });
+            });
+            
+            showSection(window.location.hash);
+
+            const codeTabContainers = document.querySelectorAll('.bg-white.rounded-lg.shadow-md');
+            codeTabContainers.forEach(container => {
+                const tabs = container.querySelectorAll('.code-tab');
+                const contents = container.querySelectorAll('.code-content');
+                
+                if (tabs.length > 0) {
+                     tabs.forEach(tab => {
+                        tab.addEventListener('click', function() {
+                            tabs.forEach(t => t.classList.remove('active'));
+                            this.classList.add('active');
+
+                            const targetId = this.dataset.target;
+                            contents.forEach(content => {
+                                if (content.id === targetId) {
+                                    content.style.display = 'block';
+                                } else {
+                                    content.style.display = 'none';
+                                }
+                            });
+                        });
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>
